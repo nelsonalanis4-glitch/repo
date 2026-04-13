@@ -101,6 +101,7 @@ body { background:#1e1e1e; color:white; font-family:Arial; }
 .card { background:#2b2b2b; padding:15px; margin:10px; border-radius:10px; }
 button { padding:10px; margin:5px; border:none; border-radius:5px; background:#4CAF50; color:white; cursor:pointer;}
 button:hover { background:#45a049; }
+input { padding:8px; margin:5px; border-radius:5px; border:none; }
 table { width:100%; border-collapse: collapse; }
 td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 </style>
@@ -121,19 +122,26 @@ td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 
 <div class="card">
 <h3>🛒 Carrito</h3>
-<table id="carrito">
-<tr><th>Cod</th><th>Nombre</th><th>Cant</th><th>Precio</th><th>Subtotal</th></tr>
-</table>
-
+<table id="carrito"></table>
 <h2>Total: $<span id="total">0</span></h2>
-
 <button onclick="finalizarVenta()">Finalizar venta</button>
 <button onclick="vaciar()">Vaciar</button>
-<button onclick="window.open('/dashboard')">📊 Ver Dashboard</button>
+<button onclick="window.open('/dashboard')">📊 Dashboard</button>
 </div>
 
 <div class="card">
 <h3>📦 Productos</h3>
+
+<h4>➕ Agregar producto</h4>
+<input id="c" placeholder="Código">
+<input id="n" placeholder="Nombre">
+<input id="t" placeholder="Talle">
+<input id="cant" placeholder="Cantidad">
+<input id="p" placeholder="Precio">
+<button onclick="agregarProducto()">Guardar</button>
+
+<br><br>
+
 <button onclick="cargar()">Actualizar</button>
 <table id="tabla"></table>
 </div>
@@ -164,12 +172,10 @@ function iniciarScanner(){
 
 	Quagga.onDetected(res=>{
 		let codigo = res.codeResult.code
-
 		if(codigo !== lastCode){
 			lastCode = codigo
 			beep()
 			agregar(codigo)
-
 			setTimeout(()=>{ lastCode = null }, 1500)
 		}
 	})
@@ -228,8 +234,8 @@ function finalizarVenta(){
 	})
 
 	window.open('/ticket','_blank')
-
 	alert("Venta realizada 💰")
+
 	carrito=[]
 	actualizar()
 	cargar()
@@ -258,6 +264,21 @@ function cargar(){
 	})
 }
 
+function agregarProducto(){
+	fetch('/agregar_producto',{
+		method:'POST',
+		headers:{'Content-Type':'application/json'},
+		body: JSON.stringify({
+			codigo:c.value,
+			nombre:n.value,
+			talle:t.value,
+			cantidad:parseInt(cant.value),
+			precio:parseFloat(p.value)
+		})
+	})
+	.then(()=>{ alert("Guardado ✅"); cargar() })
+}
+
 cargar()
 
 </script>
@@ -272,13 +293,20 @@ def productos():
 	cursor.execute("SELECT * FROM productos")
 	return jsonify(cursor.fetchall())
 
+@app.route("/agregar_producto", methods=["POST"])
+def agregar_producto():
+	data = request.json
+	cursor.execute("INSERT OR REPLACE INTO productos VALUES (?,?,?,?,?)",
+				   (data['codigo'], data['nombre'], data['talle'], data['cantidad'], data['precio']))
+	conn.commit()
+	return jsonify({"ok": True})
+
 @app.route("/vender", methods=["POST"])
 def vender():
 	if "user" not in session:
 		return jsonify({"error":"no autorizado"})
 
 	data = request.json
-
 	cursor.execute("SELECT * FROM productos WHERE codigo=?", (data['codigo'],))
 	prod = cursor.fetchone()
 
@@ -295,71 +323,6 @@ def vender():
 		return jsonify({"ok":True})
 
 	return jsonify({"error":"sin stock"})
-
-# ================= TICKET =================
-@app.route("/ticket")
-def ticket():
-	cursor.execute("SELECT * FROM ventas ORDER BY id DESC LIMIT 1")
-	v = cursor.fetchone()
-
-	if not v:
-		return "Sin ventas"
-
-	return f"""
-	<html>
-	<body onload="window.print()" style="font-family:monospace;text-align:center">
-	<h2>🛍️ TIENDA</h2>
-	<hr>
-	<p>{v[1]}</p>
-	<p>Cant: {v[2]}</p>
-	<p>Total: ${v[3]}</p>
-	<hr>
-	<p>{v[5]}</p>
-	<p>Gracias por su compra</p>
-	</body>
-	</html>
-	"""
-
-# ================= DASHBOARD =================
-@app.route("/dashboard")
-def dashboard():
-	return """
-	<html>
-	<head>
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-	</head>
-
-	<body style="background:#1e1e1e;color:white;text-align:center;font-family:Arial">
-
-	<h2>📊 Dashboard de Ventas</h2>
-	<canvas id="grafico"></canvas>
-
-	<script>
-	fetch('/ventas_data')
-	.then(r=>r.json())
-	.then(data=>{
-		let labels = data.map(v=>v.fecha)
-		let valores = data.map(v=>v.total)
-
-		new Chart(document.getElementById('grafico'), {
-			type: 'bar',
-			data: {
-				labels: labels,
-				datasets: [{ label:'Ventas', data: valores }]
-			}
-		})
-	})
-	</script>
-
-	</body>
-	</html>
-	"""
-
-@app.route("/ventas_data")
-def ventas_data():
-	cursor.execute("SELECT fecha, total FROM ventas")
-	datos = cursor.fetchall()
-	return jsonify([{"fecha":d[0],"total":d[1]} for d in datos])
 
 # ================= RUN =================
 port = int(os.environ.get("PORT", 10000))
