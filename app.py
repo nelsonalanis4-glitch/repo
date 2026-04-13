@@ -144,6 +144,11 @@ td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 
 let carrito = []
 let total = 0
+let lastCode = null
+
+function beep(){
+	new Audio("https://www.soundjay.com/buttons/sounds/beep-07.mp3").play()
+}
 
 function iniciarScanner(){
 	Quagga.init({
@@ -159,7 +164,14 @@ function iniciarScanner(){
 
 	Quagga.onDetected(res=>{
 		let codigo = res.codeResult.code
-		agregar(codigo)
+
+		if(codigo !== lastCode){
+			lastCode = codigo
+			beep()
+			agregar(codigo)
+
+			setTimeout(()=>{ lastCode = null }, 1500)
+		}
 	})
 }
 
@@ -217,7 +229,7 @@ function finalizarVenta(){
 
 	window.open('/ticket','_blank')
 
-	alert("Venta realizada")
+	alert("Venta realizada 💰")
 	carrito=[]
 	actualizar()
 	cargar()
@@ -295,15 +307,15 @@ def ticket():
 
 	return f"""
 	<html>
-	<body onload="window.print()" style="font-family:Arial;text-align:center">
-	<h2>🛍️ MI TIENDA</h2>
-	<p>Ticket</p>
+	<body onload="window.print()" style="font-family:monospace;text-align:center">
+	<h2>🛍️ TIENDA</h2>
 	<hr>
 	<p>{v[1]}</p>
-	<p>Cantidad: {v[2]}</p>
+	<p>Cant: {v[2]}</p>
 	<p>Total: ${v[3]}</p>
 	<hr>
 	<p>{v[5]}</p>
+	<p>Gracias por su compra</p>
 	</body>
 	</html>
 	"""
@@ -330,7 +342,7 @@ def dashboard():
 		let valores = data.map(v=>v.total)
 
 		new Chart(document.getElementById('grafico'), {
-			type: 'line',
+			type: 'bar',
 			data: {
 				labels: labels,
 				datasets: [{ label:'Ventas', data: valores }]
