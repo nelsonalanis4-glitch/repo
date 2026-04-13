@@ -58,9 +58,8 @@ def login():
 		return jsonify({"error": "Datos incorrectos"})
 
 	return """
-	<html>
-	<body style="background:#1e1e1e;color:white;text-align:center;font-family:Arial">
-	<h2>🔐 Login</h2>
+	<h2 style='color:white;text-align:center'>Login</h2>
+	<body style="background:#1e1e1e;text-align:center">
 	<input id="u" placeholder="Usuario"><br><br>
 	<input id="p" placeholder="Clave" type="password"><br><br>
 	<button onclick="login()">Ingresar</button>
@@ -71,8 +70,8 @@ def login():
 			method:'POST',
 			headers:{'Content-Type':'application/json'},
 			body: JSON.stringify({
-				usuario: document.getElementById('u').value,
-				clave: document.getElementById('p').value
+				usuario:u.value,
+				clave:p.value
 			})
 		})
 		.then(r=>r.json())
@@ -83,7 +82,6 @@ def login():
 	}
 	</script>
 	</body>
-	</html>
 	"""
 
 # ================= HOME =================
@@ -95,58 +93,30 @@ def home():
 	return """
 <!DOCTYPE html>
 <html>
-<head>
-<title>POS EMPRESA</title>
+<body style="background:#1e1e1e;color:white;text-align:center">
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<h2>🛒 POS EMPRESA</h2>
 
-<style>
-body { background:#1e1e1e; color:white; font-family:Arial; }
-.container { width:90%; margin:auto; }
-.card { background:#2b2b2b; padding:15px; margin:10px; border-radius:10px; }
-button { padding:10px; margin:5px; border:none; border-radius:5px; background:#4CAF50; color:white; cursor:pointer;}
-input, select { padding:8px; margin:5px; border-radius:5px; border:none; }
-table { width:100%; border-collapse: collapse; }
-td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
-</style>
-
-</head>
-
-<body>
-
-<div class="container">
-
-<h1>🛒 POS EMPRESA</h1>
-
-<div class="card">
-<h3>🛒 Carrito</h3>
-<table id="carrito"></table>
-
-<h2>Total: $<span id="total">0</span></h2>
+<h3>Total: $<span id="total">0</span></h3>
 
 <select id="metodo">
-	<option value="efectivo">💵 Efectivo</option>
-	<option value="transferencia">💳 QR MercadoPago</option>
+<option value="efectivo">Efectivo</option>
+<option value="qr">QR MercadoPago</option>
 </select>
 
-<button onclick="finalizarVenta()">Finalizar venta</button>
-</div>
+<br><br>
+
+<button onclick="pagar()">Cobrar</button>
 
 <script>
-let carrito = []
-let total = 0
 
-function finalizarVenta(){
+let total = 1000 // prueba
+
+function pagar(){
 
 	let metodo = document.getElementById("metodo").value
 
-	if(carrito.length == 0){
-		alert("Carrito vacío")
-		return
-	}
-
-	// 🔥 SI ES QR
-	if(metodo == "transferencia"){
+	if(metodo == "qr"){
 		fetch('/crear_pago',{
 			method:'POST',
 			headers:{'Content-Type':'application/json'},
@@ -157,37 +127,26 @@ function finalizarVenta(){
 			window.open(d.url,'_blank')
 		})
 
-		alert("Escaneá el QR para pagar 💳")
+		alert("Esperando pago QR...")
 		return
 	}
 
-	// 💵 EFECTIVO
-	procesarVenta("efectivo")
-}
-
-function procesarVenta(metodo){
-	carrito.forEach(i=>{
-		fetch('/vender',{
-			method:'POST',
-			headers:{'Content-Type':'application/json'},
-			body:JSON.stringify({
-				codigo:i.codigo,
-				cantidad:i.cantidad,
-				metodo:metodo
-			})
-		})
+	fetch('/vender',{
+		method:'POST',
+		headers:{'Content-Type':'application/json'},
+		body: JSON.stringify({codigo:"test",cantidad:1,metodo:"efectivo"})
 	})
 
-	alert("Venta realizada 💰")
-	carrito=[]
+	alert("Pago efectivo OK")
 }
+
 </script>
 
 </body>
 </html>
 """
 
-# ================= MERCADOPAGO =================
+# ================= CREAR PAGO =================
 @app.route("/crear_pago", methods=["POST"])
 def crear_pago():
 	data = request.json
@@ -199,34 +158,81 @@ def crear_pago():
 				"quantity": 1,
 				"unit_price": float(data["total"])
 			}
-		]
+		],
+		"notification_url": "https://TU-APP.onrender.com/webhook"
 	}
 
-	preference_response = sdk.preference().create(preference_data)
-	preference = preference_response["response"]
+	preference = sdk.preference().create(preference_data)["response"]
 
 	return jsonify({"url": preference["init_point"]})
+
+# ================= WEBHOOK =================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+	data = request.json
+
+	if data.get("type") == "payment":
+		payment_id = data["data"]["id"]
+
+		pago = sdk.payment().get(payment_id)
+		info = pago["response"]
+
+		if info["status"] == "approved":
+
+			total = info["transaction_amount"]
+
+			cursor.execute("""
+			INSERT INTO ventas (nombre,cantidad,total,metodo,fecha)
+			VALUES (?,?,?,?,?)
+			""", ("VENTA QR", 1, total, "QR", datetime.now().strftime("%Y-%m-%d %H:%M")))
+
+			conn.commit()
+
+	return "OK"
+
+# ================= TICKET =================
+@app.route("/ticket/<int:pago_id>")
+def ticket(pago_id):
+
+	pago = sdk.payment().get(pago_id)
+	info = pago["response"]
+
+	if info["status"] != "approved":
+		return "Pago no aprobado"
+
+	return f"""
+	<body onload="window.print()" style="text-align:center">
+	<h2>TICKET</h2>
+	<p>Total: ${info['transaction_amount']}</p>
+	<p>Estado: {info['status']}</p>
+	</body>
+	"""
+
+# ================= PANEL PAGOS =================
+@app.route("/pagos")
+def pagos():
+	cursor.execute("SELECT * FROM ventas ORDER BY id DESC LIMIT 20")
+	data = cursor.fetchall()
+
+	html = "<h2>Pagos</h2><table border=1>"
+	html += "<tr><th>ID</th><th>Nombre</th><th>Total</th><th>Método</th><th>Fecha</th></tr>"
+
+	for v in data:
+		html += f"<tr><td>{v[0]}</td><td>{v[1]}</td><td>${v[3]}</td><td>{v[4]}</td><td>{v[5]}</td></tr>"
+
+	html += "</table>"
+	return html
 
 # ================= API =================
 @app.route("/vender", methods=["POST"])
 def vender():
 	data = request.json
-	cursor.execute("SELECT * FROM productos WHERE codigo=?", (data['codigo'],))
-	prod = cursor.fetchone()
 
-	if prod:
-		total = data['cantidad'] * prod[4]
+	cursor.execute("INSERT INTO ventas (nombre,cantidad,total,metodo,fecha) VALUES (?,?,?,?,?)",
+				   ("VENTA", data['cantidad'], 1000, data['metodo'], datetime.now().strftime("%Y-%m-%d %H:%M")))
 
-		cursor.execute("UPDATE productos SET cantidad=? WHERE codigo=?",
-					   (prod[3]-data['cantidad'], data['codigo']))
-
-		cursor.execute("INSERT INTO ventas (nombre,cantidad,total,metodo,fecha) VALUES (?,?,?,?,?)",
-					   (prod[1], data['cantidad'], total, data['metodo'], datetime.now().strftime("%Y-%m-%d %H:%M")))
-
-		conn.commit()
-		return jsonify({"ok":True})
-
-	return jsonify({"error":"sin stock"})
+	conn.commit()
+	return jsonify({"ok":True})
 
 # ================= RUN =================
 port = int(os.environ.get("PORT", 10000))
