@@ -2,13 +2,9 @@ from flask import Flask, request, jsonify, session, redirect
 import sqlite3
 from datetime import datetime
 import os
-import mercadopago
 
 app = Flask(__name__)
 app.secret_key = "clave_secreta"
-
-# 🔥 TOKEN MERCADOPAGO
-sdk = mercadopago.SDK("TU_ACCESS_TOKEN_AQUI")
 
 conn = sqlite3.connect("tienda.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -17,7 +13,6 @@ cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS productos (
 	codigo TEXT PRIMARY KEY,
 	nombre TEXT,
-	talle TEXT,
 	cantidad INTEGER,
 	precio REAL
 )''')
@@ -38,7 +33,6 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
 )''')
 
 cursor.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin','1234','admin')")
-cursor.execute("INSERT OR IGNORE INTO usuarios VALUES ('empleado','1234','empleado')")
 conn.commit()
 
 # ================= LOGIN =================
@@ -52,16 +46,15 @@ def login():
 
 		if user:
 			session["user"] = user[0]
-			session["rol"] = user[2]
 			return jsonify({"ok": True})
 
 		return jsonify({"error": "Datos incorrectos"})
 
 	return """
-	<h2 style='color:white;text-align:center'>Login</h2>
-	<body style="background:#1e1e1e;text-align:center">
+	<body style="background:#1e1e1e;text-align:center;color:white">
+	<h2>🔐 Login</h2>
 	<input id="u" placeholder="Usuario"><br><br>
-	<input id="p" placeholder="Clave" type="password"><br><br>
+	<input id="p" type="password" placeholder="Clave"><br><br>
 	<button onclick="login()">Ingresar</button>
 
 	<script>
@@ -69,15 +62,12 @@ def login():
 		fetch('/login',{
 			method:'POST',
 			headers:{'Content-Type':'application/json'},
-			body: JSON.stringify({
-				usuario:u.value,
-				clave:p.value
-			})
+			body:JSON.stringify({usuario:u.value,clave:p.value})
 		})
 		.then(r=>r.json())
 		.then(d=>{
-			if(d.ok){ window.location="/" }
-			else{ alert("Error") }
+			if(d.ok) location.href="/"
+			else alert("Error")
 		})
 	}
 	</script>
@@ -93,52 +83,118 @@ def home():
 	return """
 <!DOCTYPE html>
 <html>
-<body style="background:#1e1e1e;color:white;text-align:center">
+<head>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{background:#1e1e1e;color:white;font-family:Arial}
+.card{background:#2b2b2b;padding:15px;margin:10px;border-radius:10px}
+button{padding:10px;margin:5px;background:#4CAF50;color:white;border:none}
+input{padding:5px;margin:5px}
+</style>
+</head>
 
-<h2>🛒 POS EMPRESA</h2>
+<body>
 
-<h3>Total: $<span id="total">0</span></h3>
+<h1>🛒 POS PRO</h1>
 
-<select id="metodo">
-<option value="efectivo">Efectivo</option>
-<option value="qr">QR MercadoPago</option>
-</select>
+<div class="card">
+<h3>📦 Productos</h3>
 
-<br><br>
+<input id="c" placeholder="Código">
+<input id="n" placeholder="Nombre">
+<input id="cant" placeholder="Stock">
+<input id="p" placeholder="Precio">
 
-<button onclick="pagar()">Cobrar</button>
+<button onclick="guardar()">Guardar</button>
+
+<hr>
+
+<div id="lista"></div>
+</div>
+
+<div class="card">
+<h3>🛒 Venta rápida</h3>
+
+<input id="codVenta" placeholder="Código">
+<input id="cantidadVenta" placeholder="Cantidad">
+
+<button onclick="vender()">Vender</button>
+</div>
+
+<div class="card">
+<h3>📊 Dashboard</h3>
+<canvas id="grafico"></canvas>
+</div>
 
 <script>
 
-let total = 1000 // prueba
-
-function pagar(){
-
-	let metodo = document.getElementById("metodo").value
-
-	if(metodo == "qr"){
-		fetch('/crear_pago',{
-			method:'POST',
-			headers:{'Content-Type':'application/json'},
-			body: JSON.stringify({ total: total })
+function guardar(){
+	fetch('/agregar_producto',{
+		method:'POST',
+		headers:{'Content-Type':'application/json'},
+		body:JSON.stringify({
+			codigo:c.value,
+			nombre:n.value,
+			cantidad:parseInt(cant.value),
+			precio:parseFloat(p.value)
 		})
-		.then(r=>r.json())
-		.then(d=>{
-			window.open(d.url,'_blank')
+	})
+	.then(()=>cargar())
+}
+
+function cargar(){
+	fetch('/productos')
+	.then(r=>r.json())
+	.then(data=>{
+		let html=""
+		data.forEach(p=>{
+			html+=p[0]+" - "+p[1]+" (Stock:"+p[2]+") $"+p[3]+"<br>"
 		})
+		lista.innerHTML=html
+	})
+}
 
-		alert("Esperando pago QR...")
-		return
-	}
-
+function vender(){
 	fetch('/vender',{
 		method:'POST',
 		headers:{'Content-Type':'application/json'},
-		body: JSON.stringify({codigo:"test",cantidad:1,metodo:"efectivo"})
+		body:JSON.stringify({
+			codigo:codVenta.value,
+			cantidad:parseInt(cantidadVenta.value)
+		})
 	})
-
-	alert("Pago efectivo OK")
+	.then(r=>r.json())
+	.then(d=>{
+		if(d.ok){
+			window.open('/ticket','_blank')
+			alert("Venta OK 💰")
+			cargar()
+			cargarGrafico()
+		}else{
+			alert("Error o sin stock")
+		}
+	})
 }
+
+function cargarGrafico(){
+	fetch('/ventas_data')
+	.then(r=>r.json())
+	.then(data=>{
+		let labels = data.map(x=>x.fecha)
+		let valores = data.map(x=>x.total)
+
+		new Chart(document.getElementById("grafico"),{
+			type:'bar',
+			data:{
+				labels:labels,
+				datasets:[{label:'Ventas',data:valores}]
+			}
+		})
+	})
+}
+
+cargar()
+cargarGrafico()
 
 </script>
 
@@ -146,93 +202,69 @@ function pagar(){
 </html>
 """
 
-# ================= CREAR PAGO =================
-@app.route("/crear_pago", methods=["POST"])
-def crear_pago():
+# ================= PRODUCTOS =================
+@app.route("/productos")
+def productos():
+	cursor.execute("SELECT * FROM productos")
+	return jsonify(cursor.fetchall())
+
+@app.route("/agregar_producto", methods=["POST"])
+def agregar_producto():
 	data = request.json
+	cursor.execute("INSERT OR REPLACE INTO productos VALUES (?,?,?,?)",
+				   (data['codigo'], data['nombre'], data['cantidad'], data['precio']))
+	conn.commit()
+	return jsonify({"ok":True})
 
-	preference_data = {
-		"items": [
-			{
-				"title": "Compra Tienda",
-				"quantity": 1,
-				"unit_price": float(data["total"])
-			}
-		],
-		"notification_url": "https://TU-APP.onrender.com/webhook"
-	}
-
-	preference = sdk.preference().create(preference_data)["response"]
-
-	return jsonify({"url": preference["init_point"]})
-
-# ================= WEBHOOK =================
-@app.route("/webhook", methods=["POST"])
-def webhook():
-	data = request.json
-
-	if data.get("type") == "payment":
-		payment_id = data["data"]["id"]
-
-		pago = sdk.payment().get(payment_id)
-		info = pago["response"]
-
-		if info["status"] == "approved":
-
-			total = info["transaction_amount"]
-
-			cursor.execute("""
-			INSERT INTO ventas (nombre,cantidad,total,metodo,fecha)
-			VALUES (?,?,?,?,?)
-			""", ("VENTA QR", 1, total, "QR", datetime.now().strftime("%Y-%m-%d %H:%M")))
-
-			conn.commit()
-
-	return "OK"
-
-# ================= TICKET =================
-@app.route("/ticket/<int:pago_id>")
-def ticket(pago_id):
-
-	pago = sdk.payment().get(pago_id)
-	info = pago["response"]
-
-	if info["status"] != "approved":
-		return "Pago no aprobado"
-
-	return f"""
-	<body onload="window.print()" style="text-align:center">
-	<h2>TICKET</h2>
-	<p>Total: ${info['transaction_amount']}</p>
-	<p>Estado: {info['status']}</p>
-	</body>
-	"""
-
-# ================= PANEL PAGOS =================
-@app.route("/pagos")
-def pagos():
-	cursor.execute("SELECT * FROM ventas ORDER BY id DESC LIMIT 20")
-	data = cursor.fetchall()
-
-	html = "<h2>Pagos</h2><table border=1>"
-	html += "<tr><th>ID</th><th>Nombre</th><th>Total</th><th>Método</th><th>Fecha</th></tr>"
-
-	for v in data:
-		html += f"<tr><td>{v[0]}</td><td>{v[1]}</td><td>${v[3]}</td><td>{v[4]}</td><td>{v[5]}</td></tr>"
-
-	html += "</table>"
-	return html
-
-# ================= API =================
+# ================= VENDER =================
 @app.route("/vender", methods=["POST"])
 def vender():
 	data = request.json
 
+	cursor.execute("SELECT * FROM productos WHERE codigo=?", (data['codigo'],))
+	p = cursor.fetchone()
+
+	if not p or p[2] < data['cantidad']:
+		return jsonify({"error":True})
+
+	total = data['cantidad'] * p[3]
+
+	cursor.execute("UPDATE productos SET cantidad=? WHERE codigo=?",
+				   (p[2]-data['cantidad'], data['codigo']))
+
 	cursor.execute("INSERT INTO ventas (nombre,cantidad,total,metodo,fecha) VALUES (?,?,?,?,?)",
-				   ("VENTA", data['cantidad'], 1000, data['metodo'], datetime.now().strftime("%Y-%m-%d %H:%M")))
+				   (p[1], data['cantidad'], total, "efectivo", datetime.now().strftime("%H:%M")))
 
 	conn.commit()
 	return jsonify({"ok":True})
+
+# ================= TICKET =================
+@app.route("/ticket")
+def ticket():
+	cursor.execute("SELECT * FROM ventas ORDER BY id DESC LIMIT 1")
+	v = cursor.fetchone()
+
+	if not v:
+		return "Sin ventas"
+
+	return f"""
+	<body onload="window.print()" style="text-align:center;font-family:monospace">
+	<h2>🧾 TICKET</h2>
+	<hr>
+	<p>{v[1]}</p>
+	<p>Cant: {v[2]}</p>
+	<p>Total: ${v[3]}</p>
+	<hr>
+	<p>{v[5]}</p>
+	</body>
+	"""
+
+# ================= DASHBOARD DATA =================
+@app.route("/ventas_data")
+def ventas_data():
+	cursor.execute("SELECT fecha, total FROM ventas")
+	data = cursor.fetchall()
+	return jsonify([{"fecha":d[0],"total":d[1]} for d in data])
 
 # ================= RUN =================
 port = int(os.environ.get("PORT", 10000))
