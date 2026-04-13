@@ -81,7 +81,7 @@ def login():
 	</html>
 	"""
 
-# ================= HOME (TODO UNIFICADO) =================
+# ================= HOME =================
 @app.route("/")
 def home():
 	if "user" not in session:
@@ -99,7 +99,8 @@ def home():
 body { background:#1e1e1e; color:white; font-family:Arial; }
 .container { width:90%; margin:auto; }
 .card { background:#2b2b2b; padding:15px; margin:10px; border-radius:10px; }
-button { padding:10px; margin:5px; border:none; border-radius:5px; background:#4CAF50; color:white; }
+button { padding:10px; margin:5px; border:none; border-radius:5px; background:#4CAF50; color:white; cursor:pointer;}
+button:hover { background:#45a049; }
 table { width:100%; border-collapse: collapse; }
 td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 </style>
@@ -128,6 +129,7 @@ td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 
 <button onclick="finalizarVenta()">Finalizar venta</button>
 <button onclick="vaciar()">Vaciar</button>
+<button onclick="window.open('/dashboard')">📊 Ver Dashboard</button>
 </div>
 
 <div class="card">
@@ -212,6 +214,9 @@ function finalizarVenta(){
 			body:JSON.stringify({codigo:i.codigo,cantidad:i.cantidad})
 		})
 	})
+
+	window.open('/ticket','_blank')
+
 	alert("Venta realizada")
 	carrito=[]
 	actualizar()
@@ -278,6 +283,71 @@ def vender():
 		return jsonify({"ok":True})
 
 	return jsonify({"error":"sin stock"})
+
+# ================= TICKET =================
+@app.route("/ticket")
+def ticket():
+	cursor.execute("SELECT * FROM ventas ORDER BY id DESC LIMIT 1")
+	v = cursor.fetchone()
+
+	if not v:
+		return "Sin ventas"
+
+	return f"""
+	<html>
+	<body onload="window.print()" style="font-family:Arial;text-align:center">
+	<h2>🛍️ MI TIENDA</h2>
+	<p>Ticket</p>
+	<hr>
+	<p>{v[1]}</p>
+	<p>Cantidad: {v[2]}</p>
+	<p>Total: ${v[3]}</p>
+	<hr>
+	<p>{v[5]}</p>
+	</body>
+	</html>
+	"""
+
+# ================= DASHBOARD =================
+@app.route("/dashboard")
+def dashboard():
+	return """
+	<html>
+	<head>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	</head>
+
+	<body style="background:#1e1e1e;color:white;text-align:center;font-family:Arial">
+
+	<h2>📊 Dashboard de Ventas</h2>
+	<canvas id="grafico"></canvas>
+
+	<script>
+	fetch('/ventas_data')
+	.then(r=>r.json())
+	.then(data=>{
+		let labels = data.map(v=>v.fecha)
+		let valores = data.map(v=>v.total)
+
+		new Chart(document.getElementById('grafico'), {
+			type: 'line',
+			data: {
+				labels: labels,
+				datasets: [{ label:'Ventas', data: valores }]
+			}
+		})
+	})
+	</script>
+
+	</body>
+	</html>
+	"""
+
+@app.route("/ventas_data")
+def ventas_data():
+	cursor.execute("SELECT fecha, total FROM ventas")
+	datos = cursor.fetchall()
+	return jsonify([{"fecha":d[0],"total":d[1]} for d in datos])
 
 # ================= RUN =================
 port = int(os.environ.get("PORT", 10000))
