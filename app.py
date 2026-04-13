@@ -126,11 +126,14 @@ td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 <h2>Total: $<span id="total">0</span></h2>
 <button onclick="finalizarVenta()">Finalizar venta</button>
 <button onclick="vaciar()">Vaciar</button>
-<button onclick="window.open('/dashboard')">📊 Dashboard</button>
 </div>
 
 <div class="card">
-<h3>📦 Productos</h3>
+<h3>📦 Panel Admin PRO</h3>
+
+<input id="buscar" placeholder="🔍 Buscar..." onkeyup="cargar()">
+
+<br><br>
 
 <h4>➕ Agregar producto</h4>
 <input id="c" placeholder="Código">
@@ -144,6 +147,7 @@ td,th { padding:8px; border-bottom:1px solid #444; text-align:center; }
 
 <button onclick="cargar()">Actualizar</button>
 <table id="tabla"></table>
+
 </div>
 
 </div>
@@ -233,9 +237,7 @@ function finalizarVenta(){
 		})
 	})
 
-	window.open('/ticket','_blank')
 	alert("Venta realizada 💰")
-
 	carrito=[]
 	actualizar()
 	cargar()
@@ -250,16 +252,30 @@ function cargar(){
 	fetch('/productos')
 	.then(r=>r.json())
 	.then(data=>{
-		let html="<tr><th>Cod</th><th>Nombre</th><th>Talle</th><th>Stock</th><th>Precio</th></tr>"
-		data.forEach(p=>{
-			html+=`<tr>
+
+		let filtro = document.getElementById("buscar").value.toLowerCase()
+
+		let html = "<tr><th>Cod</th><th>Nombre</th><th>Talle</th><th>Stock</th><th>Precio</th><th>Acciones</th></tr>"
+
+		data
+		.filter(p => p[1].toLowerCase().includes(filtro))
+		.forEach(p=>{
+
+			let alerta = p[3] <= 3 ? "style='color:red;font-weight:bold'" : ""
+
+			html += `<tr>
 			<td>${p[0]}</td>
 			<td>${p[1]}</td>
 			<td>${p[2]}</td>
-			<td>${p[3]}</td>
+			<td ${alerta}>${p[3]}</td>
 			<td>$${p[4]}</td>
+			<td>
+				<button onclick="editar('${p[0]}','${p[1]}','${p[2]}',${p[3]},${p[4]})">✏️</button>
+				<button onclick="eliminar('${p[0]}')">🗑️</button>
+			</td>
 			</tr>`
 		})
+
 		document.getElementById("tabla").innerHTML = html
 	})
 }
@@ -277,6 +293,37 @@ function agregarProducto(){
 		})
 	})
 	.then(()=>{ alert("Guardado ✅"); cargar() })
+}
+
+function eliminar(codigo){
+	if(confirm("¿Eliminar producto?")){
+		fetch('/eliminar_producto',{
+			method:'POST',
+			headers:{'Content-Type':'application/json'},
+			body: JSON.stringify({codigo:codigo})
+		})
+		.then(()=>cargar())
+	}
+}
+
+function editar(c,n,t,cant,p){
+	let nombre = prompt("Nombre:", n)
+	let talle = prompt("Talle:", t)
+	let cantidad = prompt("Cantidad:", cant)
+	let precio = prompt("Precio:", p)
+
+	fetch('/editar_producto',{
+		method:'POST',
+		headers:{'Content-Type':'application/json'},
+		body: JSON.stringify({
+			codigo:c,
+			nombre:nombre,
+			talle:talle,
+			cantidad:parseInt(cantidad),
+			precio:parseFloat(precio)
+		})
+	})
+	.then(()=>cargar())
 }
 
 cargar()
@@ -298,6 +345,24 @@ def agregar_producto():
 	data = request.json
 	cursor.execute("INSERT OR REPLACE INTO productos VALUES (?,?,?,?,?)",
 				   (data['codigo'], data['nombre'], data['talle'], data['cantidad'], data['precio']))
+	conn.commit()
+	return jsonify({"ok": True})
+
+@app.route("/eliminar_producto", methods=["POST"])
+def eliminar_producto():
+	data = request.json
+	cursor.execute("DELETE FROM productos WHERE codigo=?", (data['codigo'],))
+	conn.commit()
+	return jsonify({"ok": True})
+
+@app.route("/editar_producto", methods=["POST"])
+def editar_producto():
+	data = request.json
+	cursor.execute("""
+	UPDATE productos 
+	SET nombre=?, talle=?, cantidad=?, precio=? 
+	WHERE codigo=?
+	""", (data['nombre'], data['talle'], data['cantidad'], data['precio'], data['codigo']))
 	conn.commit()
 	return jsonify({"ok": True})
 
